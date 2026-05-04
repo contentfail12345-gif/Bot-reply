@@ -72,19 +72,30 @@ app.patch('/edit/:id', async (req, res) => {
 app.get('/replies', async (req, res) => {
   try {
     const channel = await client.channels.fetch(CHANNEL_ID);
-    const messages = await channel.messages.fetch({ limit: 10 });
+    const messages = await channel.messages.fetch({ limit: 15 });
     
-    // Trả về danh sách tin nhắn gọn nhẹ cho Launcher
-    const formatted = messages.map(m => ({
-      id: m.id,
-      authorId: m.author.id,
-      content: m.content,
-      timestamp: m.createdTimestamp,
-      referenced_message: m.referencedMessage ? {
-        embeds: m.referencedMessage.embeds.map(e => ({
-          footer: e.footer ? { text: e.footer.text } : null
-        }))
-      } : null
+    // Tải tin nhắn gốc nếu là Reply
+    const formatted = await Promise.all(messages.map(async m => {
+      let refMsg = m.referencedMessage;
+      if (!refMsg && m.reference && m.reference.messageId) {
+        try {
+          refMsg = await channel.messages.fetch(m.reference.messageId);
+        } catch (e) {
+          console.log("Fetch ref error:", e.message);
+        }
+      }
+
+      return {
+        id: m.id,
+        authorId: m.author.id,
+        content: m.content,
+        timestamp: m.createdTimestamp,
+        referenced_message: refMsg ? {
+          embeds: refMsg.embeds.map(e => ({
+            footer: e.footer ? { text: e.footer.text } : null
+          }))
+        } : null
+      };
     }));
     
     res.status(200).json(formatted);

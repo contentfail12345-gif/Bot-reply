@@ -90,6 +90,11 @@ app.get('/replies', async (req, res) => {
         authorId: m.author.id,
         content: m.content,
         timestamp: m.createdTimestamp,
+        attachments: m.attachments.map(a => ({
+          name: a.name,
+          url: a.url,
+          contentType: a.contentType
+        })),
         referenced_message: refMsg ? {
           embeds: refMsg.embeds.map(e => ({
             footer: e.footer ? { text: e.footer.text } : null

@@ -79,7 +79,12 @@ app.get('/replies', async (req, res) => {
       id: m.id,
       authorId: m.author.id,
       content: m.content,
-      timestamp: m.createdTimestamp
+      timestamp: m.createdTimestamp,
+      referenced_message: m.referencedMessage ? {
+        embeds: m.referencedMessage.embeds.map(e => ({
+          footer: e.footer ? { text: e.footer.text } : null
+        }))
+      } : null
     }));
     
     res.status(200).json(formatted);

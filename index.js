@@ -9,18 +9,16 @@ app.use(cors());
 app.use(express.json());
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CHANNEL_ID = "1331293347575660604"; // ID kênh đúng của bạn
+const CHANNEL_ID = "1331293347575660604"; 
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
 });
 
-// Endpoint nhận tin từ Launcher
+// 1. Gửi tin nhắn (Trả về ID để Launcher lưu lại)
 app.post('/send', upload.single('file'), async (req, res) => {
   try {
     const channel = await client.channels.fetch(CHANNEL_ID);
-    if (!channel) return res.status(404).send("Channel not found");
-
     const payload = JSON.parse(req.body.payload_json);
     const options = { embeds: payload.embeds };
 
@@ -29,16 +27,49 @@ app.post('/send', upload.single('file'), async (req, res) => {
       options.files = [attachment];
     }
 
-    await channel.send(options);
-    res.status(200).send("OK");
+    const message = await channel.send(options);
+    res.status(200).json({ id: message.id }); // Trả về ID tin nhắn
   } catch (err) {
-    console.error(err);
+    res.status(500).send(err.message);
+  }
+});
+
+// 2. Thu hồi tin nhắn
+app.delete('/delete/:id', async (req, res) => {
+  try {
+    const channel = await client.channels.fetch(CHANNEL_ID);
+    const message = await channel.messages.fetch(req.params.id);
+    await message.delete();
+    res.status(200).send("Deleted");
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
+// 3. Chỉnh sửa tin nhắn
+app.patch('/edit/:id', async (req, res) => {
+  try {
+    const channel = await client.channels.fetch(CHANNEL_ID);
+    const message = await channel.messages.fetch(req.params.id);
+    
+    // Sửa nội dung trong Embed
+    const oldEmbed = message.embeds[0];
+    const newEmbed = {
+      ...oldEmbed.data,
+      fields: oldEmbed.data.fields.map(f => 
+        f.name === "💬 Nội dung" ? { ...f, value: req.body.text } : f
+      )
+    };
+
+    await message.edit({ embeds: [newEmbed] });
+    res.status(200).send("Edited");
+  } catch (err) {
     res.status(500).send(err.message);
   }
 });
 
 app.listen(process.env.PORT || 3000, () => {
-  console.log("Proxy Server is running...");
+  console.log("Advanced Proxy Server is running...");
 });
 
 client.once('ready', () => {

@@ -68,6 +68,26 @@ app.patch('/edit/:id', async (req, res) => {
   }
 });
 
+// 4. Lấy danh sách tin nhắn mới nhất (Để Launcher hiển thị phản hồi)
+app.get('/replies', async (req, res) => {
+  try {
+    const channel = await client.channels.fetch(CHANNEL_ID);
+    const messages = await channel.messages.fetch({ limit: 10 });
+    
+    // Trả về danh sách tin nhắn gọn nhẹ cho Launcher
+    const formatted = messages.map(m => ({
+      id: m.id,
+      authorId: m.author.id,
+      content: m.content,
+      timestamp: m.createdTimestamp
+    }));
+    
+    res.status(200).json(formatted);
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
 app.listen(process.env.PORT || 3000, () => {
   console.log("Advanced Proxy Server is running...");
 });

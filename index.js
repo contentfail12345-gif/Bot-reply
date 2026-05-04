@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CHANNEL_ID = "1331293347575660604"; 
+const CHANNEL_ID = "1492749346154877080"; 
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]

@@ -9,7 +9,7 @@ app.use(cors());
 app.use(express.json());
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CHANNEL_ID = "1368940868846125077"; // ID kênh của bạn
+const CHANNEL_ID = "1331293347575660604"; // ID kênh đúng của bạn
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]

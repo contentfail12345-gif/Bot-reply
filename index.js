@@ -73,59 +73,56 @@ app.patch('/edit/:id', async (req, res) => {
 });
 
 // 4. Poll tin nhắn theo userId — frontend gọi cái này
-// Trả về đúng các reply liên quan đến userId của user đang chat
+const refMsgCache = new Map(); // cache để không fetch lại cùng 1 message nhiều lần
+
 app.get('/poll', async (req, res) => {
   const { userId } = req.query;
   if (!userId) return res.status(400).json([]);
 
   try {
     const channel = await client.channels.fetch(CHANNEL_ID);
-    const messages = await channel.messages.fetch({ limit: 50 });
+    const messages = await channel.messages.fetch({ limit: 30 });
+    const results = [];
 
-    const ADMIN_ID = process.env.ADMIN_ID || "1493205446528340129";
+    for (const m of messages.values()) {
+      // Chỉ lấy tin của người thật, bỏ bot
+      if (m.author.bot) continue;
+      // Phải là reply (có referenced message)
+      if (!m.reference?.messageId) continue;
 
-    const relevant = await Promise.all(
-      [...messages.values()].map(async m => {
-        // Bỏ qua tin do chính bot/webhook gửi
-        if (m.author.bot && !m.webhookId) return null; // bot nội bộ
-        // Chỉ lấy tin của người thật (admin)
-        if (m.author.bot) return null;
+      // Lấy referenced message — dùng cache tránh rate-limit
+      let refMsg = refMsgCache.get(m.reference.messageId);
+      if (!refMsg) {
+        try {
+          refMsg = await channel.messages.fetch(m.reference.messageId);
+          refMsgCache.set(m.reference.messageId, refMsg);
+          // Giới hạn cache size
+          if (refMsgCache.size > 200) {
+            const firstKey = refMsgCache.keys().next().value;
+            refMsgCache.delete(firstKey);
+          }
+        } catch (e) { continue; }
+      }
 
-        // Lấy referenced message đầy đủ (server có thể fetch, client thì không)
-        let refMsg = m.referencedMessage;
-        if (!refMsg && m.reference?.messageId) {
-          try {
-            refMsg = await channel.messages.fetch(m.reference.messageId);
-          } catch (e) {}
-        }
+      // Chỉ trả về nếu reply đúng vào message của userId này
+      const refFooter = refMsg.embeds?.[0]?.footer?.text || "";
+      const isForThisUser = refFooter.includes(userId);
+      if (!isForThisUser) continue;
 
-        if (!refMsg) return null; // bỏ tin không phải reply
+      results.push({
+        id: m.id,
+        authorId: m.author.id,
+        content: m.content,
+        timestamp: m.createdAt,
+        attachments: [...m.attachments.values()].map(a => ({
+          name: a.name,
+          url: a.url,
+          contentType: a.contentType
+        }))
+      });
+    }
 
-        // Kiểm tra reply có liên quan đến userId này không
-        const refFooter = refMsg.embeds?.[0]?.footer?.text || "";
-        const refContent = refMsg.content || "";
-        const isForThisUser = refFooter.includes(userId) || refContent.includes(userId);
-
-        // Cũng nhận nếu là admin đang reply (dù không match userId — fallback)
-        const isAdminReply = m.author.id === ADMIN_ID;
-
-        if (!isForThisUser && !isAdminReply) return null;
-
-        return {
-          id: m.id,
-          authorId: m.author.id,
-          content: m.content,
-          timestamp: m.createdAt,
-          attachments: [...m.attachments.values()].map(a => ({
-            name: a.name,
-            url: a.url,
-            contentType: a.contentType
-          }))
-        };
-      })
-    );
-
-    res.json(relevant.filter(Boolean));
+    res.json(results);
   } catch (err) {
     res.status(500).send(err.message);
   }

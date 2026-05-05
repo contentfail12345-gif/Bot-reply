@@ -9,10 +9,14 @@ app.use(cors());
 app.use(express.json());
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CHANNEL_ID = "1492749346154877080"; 
+const CHANNEL_ID = "1492749346154877080";
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent  // ← BẮT BUỘC để đọc được nội dung tin nhắn
+  ]
 });
 
 // 1. Gửi tin nhắn (Trả về ID để Launcher lưu lại)
@@ -51,12 +55,12 @@ app.patch('/edit/:id', async (req, res) => {
   try {
     const channel = await client.channels.fetch(CHANNEL_ID);
     const message = await channel.messages.fetch(req.params.id);
-    
+
     // Sửa nội dung trong Embed
     const oldEmbed = message.embeds[0];
     const newEmbed = {
       ...oldEmbed.data,
-      fields: oldEmbed.data.fields.map(f => 
+      fields: oldEmbed.data.fields.map(f =>
         f.name === "💬 Nội dung" ? { ...f, value: req.body.text } : f
       )
     };
@@ -68,12 +72,71 @@ app.patch('/edit/:id', async (req, res) => {
   }
 });
 
-// 4. Lấy danh sách tin nhắn mới nhất (Để Launcher hiển thị phản hồi)
+// 4. Poll tin nhắn theo userId — frontend gọi cái này
+// Trả về đúng các reply liên quan đến userId của user đang chat
+app.get('/poll', async (req, res) => {
+  const { userId } = req.query;
+  if (!userId) return res.status(400).json([]);
+
+  try {
+    const channel = await client.channels.fetch(CHANNEL_ID);
+    const messages = await channel.messages.fetch({ limit: 50 });
+
+    const ADMIN_ID = process.env.ADMIN_ID || "1493205446528340129";
+
+    const relevant = await Promise.all(
+      [...messages.values()].map(async m => {
+        // Bỏ qua tin do chính bot/webhook gửi
+        if (m.author.bot && !m.webhookId) return null; // bot nội bộ
+        // Chỉ lấy tin của người thật (admin)
+        if (m.author.bot) return null;
+
+        // Lấy referenced message đầy đủ (server có thể fetch, client thì không)
+        let refMsg = m.referencedMessage;
+        if (!refMsg && m.reference?.messageId) {
+          try {
+            refMsg = await channel.messages.fetch(m.reference.messageId);
+          } catch (e) {}
+        }
+
+        if (!refMsg) return null; // bỏ tin không phải reply
+
+        // Kiểm tra reply có liên quan đến userId này không
+        const refFooter = refMsg.embeds?.[0]?.footer?.text || "";
+        const refContent = refMsg.content || "";
+        const isForThisUser = refFooter.includes(userId) || refContent.includes(userId);
+
+        // Cũng nhận nếu là admin đang reply (dù không match userId — fallback)
+        const isAdminReply = m.author.id === ADMIN_ID;
+
+        if (!isForThisUser && !isAdminReply) return null;
+
+        return {
+          id: m.id,
+          authorId: m.author.id,
+          content: m.content,
+          timestamp: m.createdAt,
+          attachments: [...m.attachments.values()].map(a => ({
+            name: a.name,
+            url: a.url,
+            contentType: a.contentType
+          }))
+        };
+      })
+    );
+
+    res.json(relevant.filter(Boolean));
+  } catch (err) {
+    res.status(500).send(err.message);
+  }
+});
+
+// 5. Lấy danh sách tin nhắn mới nhất (Để Launcher hiển thị phản hồi)
 app.get('/replies', async (req, res) => {
   try {
     const channel = await client.channels.fetch(CHANNEL_ID);
     const messages = await channel.messages.fetch({ limit: 15 });
-    
+
     // Tải tin nhắn gốc nếu là Reply
     const formatted = await Promise.all(messages.map(async m => {
       let refMsg = m.referencedMessage;
@@ -102,7 +165,7 @@ app.get('/replies', async (req, res) => {
         } : null
       };
     }));
-    
+
     res.status(200).json(formatted);
   } catch (err) {
     res.status(500).send(err.message);
